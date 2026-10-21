@@ -3,7 +3,16 @@ service cloud.firestore {
   match /databases/{database}/documents {
     match /envios/{id} {
       allow read: if request.auth != null;
-      allow create: if request.auth != null && request.resource.data.uid == request.auth.uid;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.tipo in ['foto', 'audio'];
+    }
+    // Contenido del archivo como data URL; Firestore limita cada documento a 1 MiB.
+    match /archivos/{id} {
+      allow read: if request.auth != null;
+      allow create: if request.auth != null
+                    && request.resource.data.uid == request.auth.uid
+                    && request.resource.data.datos is string;
     }
   }
 }

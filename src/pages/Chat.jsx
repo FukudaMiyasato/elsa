@@ -1,18 +1,23 @@
 import { useRef, useState } from 'react'
 import { useAuth } from '../AuthContext'
-import { enviar } from '../envios'
+import { comprimirFoto, enviar } from '../envios'
+
+// A 24 kbps, 3 minutos son ~540 KB: entra en un documento de Firestore.
+const MAX_SEGUNDOS_AUDIO = 180
+const BITRATE_AUDIO = 24000
 
 export default function Chat() {
   const { user } = useAuth()
   const [grabando, setGrabando] = useState(false)
+  const [restante, setRestante] = useState(MAX_SEGUNDOS_AUDIO)
   const [estado, setEstado] = useState(null)
   const grabadorRef = useRef(null)
   const inputFotoRef = useRef(null)
 
-  const subir = async (tipo, blob) => {
+  const subir = async (tipo, obtenerBlob) => {
     setEstado({ texto: tipo === 'audio' ? 'Enviando audio…' : 'Enviando foto…' })
     try {
-      await enviar(user, tipo, blob)
+      await enviar(user, tipo, await obtenerBlob())
       setEstado({ texto: tipo === 'audio' ? 'Audio enviado ✓' : 'Foto enviada ✓', ok: true })
     } catch (e) {
       setEstado({ texto: `Error: ${e.message}`, error: true })
@@ -26,16 +31,25 @@ export default function Chat() {
     }
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true })
-      const grabador = new MediaRecorder(stream)
+      const grabador = new MediaRecorder(stream, { audioBitsPerSecond: BITRATE_AUDIO })
       const partes = []
+      let segundos = MAX_SEGUNDOS_AUDIO
+      const reloj = setInterval(() => {
+        segundos -= 1
+        setRestante(segundos)
+        if (segundos <= 0) grabador.stop()
+      }, 1000)
+
       grabador.ondataavailable = (e) => e.data.size && partes.push(e.data)
       grabador.onstop = () => {
+        clearInterval(reloj)
         stream.getTracks().forEach((t) => t.stop())
         setGrabando(false)
-        subir('audio', new Blob(partes, { type: grabador.mimeType }))
+        subir('audio', () => new Blob(partes, { type: grabador.mimeType }))
       }
       grabador.start()
       grabadorRef.current = grabador
+      setRestante(MAX_SEGUNDOS_AUDIO)
       setGrabando(true)
       setEstado({ texto: 'Grabando… toca de nuevo para enviar' })
     } catch (e) {
@@ -46,8 +60,10 @@ export default function Chat() {
   const alSeleccionarFoto = (e) => {
     const archivo = e.target.files?.[0]
     e.target.value = ''
-    if (archivo) subir('foto', archivo)
+    if (archivo) subir('foto', () => comprimirFoto(archivo))
   }
+
+  const mmss = `${Math.floor(restante / 60)}:${String(restante % 60).padStart(2, '0')}`
 
   return (
     <div className="chat">
@@ -56,7 +72,7 @@ export default function Chat() {
         onClick={alternarAudio}
       >
         <span className="icono">{grabando ? '⏹' : '🎙️'}</span>
-        {grabando ? 'Detener y enviar' : 'Enviar audio'}
+        {grabando ? `Detener y enviar (${mmss})` : 'Enviar audio'}
       </button>
 
       <button

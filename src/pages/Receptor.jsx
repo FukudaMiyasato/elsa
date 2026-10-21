@@ -1,5 +1,5 @@
 import { useEffect, useState } from 'react'
-import { collection, limit, onSnapshot, orderBy, query } from 'firebase/firestore'
+import { collection, doc, getDoc, limit, onSnapshot, orderBy, query } from 'firebase/firestore'
 import { db } from '../firebase'
 
 export default function Receptor() {
@@ -8,7 +8,7 @@ export default function Receptor() {
   const [error, setError] = useState(null)
 
   useEffect(() => {
-    const q = query(collection(db, 'envios'), orderBy('creadoEn', 'desc'), limit(200))
+    const q = query(collection(db, 'envios'), orderBy('creadoEn', 'desc'), limit(100))
     return onSnapshot(
       q,
       (snap) => setEnvios(snap.docs.map((d) => ({ id: d.id, ...d.data() }))),
@@ -40,16 +40,33 @@ export default function Receptor() {
               <strong>{e.nombre || e.email}</strong>
               <span>{e.creadoEn ? e.creadoEn.toDate().toLocaleString() : 'enviando…'}</span>
             </div>
-            {e.tipo === 'foto' ? (
-              <a href={e.url} target="_blank" rel="noreferrer">
-                <img src={e.url} alt={`Foto de ${e.nombre || e.email}`} loading="lazy" />
-              </a>
-            ) : (
-              <audio controls src={e.url} preload="none" />
-            )}
+            <Contenido envio={e} />
           </li>
         ))}
       </ul>
     </div>
+  )
+}
+
+// El archivo vive en `archivos/{id}`; se descarga al mostrar cada envío.
+function Contenido({ envio }) {
+  const [datos, setDatos] = useState(null)
+  const [error, setError] = useState(false)
+
+  useEffect(() => {
+    getDoc(doc(db, 'archivos', envio.id))
+      .then((snap) => (snap.exists() ? setDatos(snap.data().datos) : setError(true)))
+      .catch(() => setError(true))
+  }, [envio.id])
+
+  if (error) return <p className="vacio">No se pudo cargar el archivo.</p>
+  if (!datos) return <div className="cargando-archivo" />
+
+  return envio.tipo === 'foto' ? (
+    <a href={datos} download={`foto-${envio.id}.jpg`}>
+      <img src={datos} alt={`Foto de ${envio.nombre || envio.email}`} />
+    </a>
+  ) : (
+    <audio controls src={datos} />
   )
 }
